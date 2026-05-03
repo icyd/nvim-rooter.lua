@@ -8,6 +8,11 @@ local _config = {
     ['dashboard'] = true,
     ['TelescopePrompt'] = true,
   },
+  exclude_buftypes = {
+    ['terminal'] = true,
+    ['prompt'] = true,
+    ['quickfix'] = true,
+  },
   fallback_to_parent = false,
 }
 
@@ -38,7 +43,7 @@ local function activate()
     return false
   end
 
-  if _config.exclude_filetypes[vim.bo.filetype] ~= nil then
+  if _config.exclude_filetypes[vim.bo.filetype] ~= nil and _config.exclude_buftypes[vim.bo.filetype] ~= nil then
     return false
   end
 
@@ -56,10 +61,20 @@ end
 local function get_root(patterns)
   patterns = patterns ~= nil and patterns or _config.patterns
 
-  -- don't need to resove sybolic links explicitly, because
+  if vim.fn.has('nvim-0.10') then
+    for _, pattern in ipairs(patterns) do
+      local parent = vim.fs.root(0, pattern)
+      if parent ~= nil then
+        return parent
+      end
+    end
+    return nil
+  end
+
+  -- don't need to resolve symbolic links explicitly, because
   -- `nvim_buf_get_name` returns the resolved path.
   local current = vim.api.nvim_buf_get_name(0)
-  current = current == "" and vim.fn.getcwd() or current
+  current = current == '' and vim.fn.getcwd() or current
   local parent = parent_dir(current)
 
   while 1 do
@@ -89,28 +104,23 @@ local function apply_root(root)
   end
 end
 
-local function rooter_default()
+local function rooter_custom(patterns)
   if not activate() then
     return
   end
 
-  local root = vim.fn.exists('b:root_dir') == 1 and vim.api.nvim_buf_get_var(0, 'root_dir') or nil
+  local root = patterns == nil and vim.fn.exists('b:root_dir') == 1 and vim.api.nvim_buf_get_var(0, 'root_dir') or nil
+
   if root == nil then
-    root = get_root()
+    root = get_root(patterns)
     vim.api.nvim_buf_set_var(0, 'root_dir', root)
   end
 
   apply_root(root)
 end
 
-local function rooter_custom(pattern)
-  if not activate() then
-    return
-  end
-
-  local root = get_root(pattern)
-  vim.api.nvim_buf_set_var(0, 'root_dir', root)
-  apply_root(root)
+local function rooter_default()
+  rooter_custom()
 end
 
 local function rooter_toggle()
@@ -159,12 +169,12 @@ end
 
 local function setup(opts)
   opts = opts ~= nil and opts or {}
-  _config.patterns = opts.rooter_patterns ~= nil and opts.rooter_patterns
-    or { '.git', '.hg', '.svn' }
+  _config.patterns = opts.rooter_patterns ~= nil and opts.rooter_patterns or { '.git', '.hg', '.svn' }
   _config.trigger_patterns = opts.trigger_patterns ~= nil and opts.trigger_patterns or { '*' }
   _config.exclude_filetypes = merge(_config.exclude_filetypes, opts.exclude_filetypes)
+  _config.exclude_buftypes = merge(_config.exclude_buftypes, opts.exclude_buftypes)
   _config.fallback_to_parent = opts.fallback_to_parent ~= nil and opts.fallback_to_parent
-  _config.cd_scope = opts.cd_scope ~= nil and opts.cd_scope or "global"
+  _config.cd_scope = opts.cd_scope ~= nil and opts.cd_scope or 'global'
 
   if opts.manual == nil or opts.manual == false then
     setup_autocmd()
